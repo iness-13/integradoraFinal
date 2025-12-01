@@ -5,53 +5,102 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 
 class LoginController extends Controller
 {
-    // Registrar usuario
+    /**
+     * Registro de usuario (solo profesor o alumno)
+     */
     public function register(Request $request)
     {
         $request->validate([
-            'name' => 'required|string',
-            'email' => 'required|string|email|unique:users',
-            'password' => 'required|string|min:6'
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:6|confirmed',
+            'rol' => 'required|in:profesor,alumno' // 👈 Solo se permiten estos roles desde el registro
         ]);
 
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'rol' => $request->rol,
         ]);
 
-        return response()->json(['user' => $user], 201);
+        // Crear token con Sanctum
+        $token = $user->createToken('mobile-token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Usuario registrado correctamente',
+            'data' => [
+                'user' => $user,
+                'token' => $token,
+                'token_type' => 'Bearer'
+            ]
+        ], 201);
     }
 
-    // Iniciar sesión
+    /**
+     * Login de usuario
+     */
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|string|email',
+            'email' => 'required|email',
             'password' => 'required|string'
         ]);
 
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json(['message' => 'Credenciales inválidas'], 401);
+            return response()->json([
+                'success' => false,
+                'message' => 'Credenciales inválidas'
+            ], 401);
         }
 
-        $token = $user->createToken('api-token')->plainTextToken;
+        // Eliminar tokens anteriores si deseas reiniciar sesiones
+        // $user->tokens()->delete();
+
+        $token = $user->createToken('mobile-token')->plainTextToken;
 
         return response()->json([
-            'user' => $user,
-            'token' => $token
-        ]);
+            'success' => true,
+            'message' => 'Login exitoso',
+            'data' => [
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'rol' => $user->rol, // 👈 Devolvemos el rol
+                ],
+                'token' => $token,
+                'token_type' => 'Bearer'
+            ]
+        ], 200);
     }
 
-    // Cerrar sesión
+    /**
+     * Logout (revoca token actual)
+     */
     public function logout(Request $request)
     {
-        $request->user()->tokens()->delete();
-        return response()->json(['message' => 'Sesión cerrada']);
+        $user = $request->user();
+        if ($user) {
+            // Revoca el token actual
+            $user->currentAccessToken()->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cerraste sesión correctamente'
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'No se encontró usuario autenticado'
+        ], 401);
     }
 }
