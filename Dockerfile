@@ -1,35 +1,37 @@
-# Imagen base con PHP 8.2 y Apache
+# Imagen base: PHP 8.2 con Apache
 FROM php:8.2-apache
 
-# Instalar extensiones necesarias para Laravel y PostgreSQL
+# Instalar extensiones necesarias para Laravel + PostgreSQL
 RUN apt-get update && apt-get install -y \
-    git unzip libpq-dev libonig-dev libzip-dev \
-    && docker-php-ext-install pdo pdo_pgsql mbstring zip
+    git \
+    unzip \
+    libpq-dev \
+    && docker-php-ext-install pdo pdo_pgsql
 
-# Activar mod_rewrite para Laravel
+# Habilitar mod_rewrite (necesario para Laravel)
 RUN a2enmod rewrite
 
-# Directorio de trabajo
+# Cambiar el DocumentRoot de Apache a /var/www/html/public
+RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
+
+# Establecer el directorio de trabajo
 WORKDIR /var/www/html
 
-# Copiar el proyecto al contenedor
+# Copiar todos los archivos del proyecto al contenedor
 COPY . .
 
-# Instalar Composer desde imagen oficial
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# Instalar Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-# Instalar dependencias de Laravel
+# Instalar dependencias de Laravel (sin dev) y optimizar
 RUN composer install --no-dev --optimize-autoloader
 
-# Cachear config/rutas/vistas (si falla, que no truene el build)
-RUN php artisan config:cache || true
-RUN php artisan route:cache || true
-RUN php artisan view:cache || true
+# Opcional pero recomendado: cachear config y rutas
+RUN php artisan config:cache || true \
+ && php artisan route:cache || true
 
-# Permisos para storage y cache
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 775 storage bootstrap/cache
-
+# Exponer el puerto 80 (Apache)
 EXPOSE 80
 
+# Comando para levantar Apache
 CMD ["apache2-foreground"]
